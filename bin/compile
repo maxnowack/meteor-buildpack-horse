@@ -56,13 +56,8 @@ if [ -n "$METEOR_APP_DIR" ]; then
   APP_SOURCE_DIR="${APP_SOURCE_DIR}/${METEOR_APP_DIR}"
 fi
 
-# Try "$APP_SOURCE_DIR/app/" if meteor app isn't there (the "Iron scaffolding
-# tool" default).
-if [ ! -d "$APP_SOURCE_DIR/.meteor" ] && [ -d "$APP_SOURCE_DIR/app/.meteor" ]; then
-  APP_SOURCE_DIR="$APP_SOURCE_DIR/app/"
-fi
-if [ ! -d "$APP_SOURCE_DIR/.meteor" ]; then
-  echo "FATAL: Can't find meteor app. Set METEOR_APP_DIR to the relative location of the meteor app within your repository if it's not in the root or 'app/' subdirectory.  (Tried ${APP_SOURCE_DIR})"
+if [ -d "$APP_SOURCE_DIR/.meteor" ]; then
+  echo "FATAL: Found non build meteor app. Please use the master branch of this buildpack to build meteor on heroku"
   exit 1
 fi
 
@@ -169,50 +164,9 @@ PATH="$METEOR_DIR/.meteor:`dirname $METEOR_NPM`:$COMPILE_DIR/bin:$PATH"
 
 echo "-----> Using node: `$NODE --version`"
 echo "----->    and npm: `$METEOR_NPM --version`"
-
-# If we use npm on root, run npm install.  Don't use `--production` here, as we
-# may need devDependencies (e.g. webpack) in order to build the meteor app.
-if [ -e "$APP_SOURCE_DIR"/package.json ]; then
-  mkdir -p $CACHE_DIR/meteor-dev-modules
-  if [ -n "$(ls -A $CACHE_DIR/meteor-dev-modules)" ]; then
-    echo "-----> Reusing development node_modules cache"
-    mkdir -p $APP_SOURCE_DIR/node_modules
-    mv $CACHE_DIR/meteor-dev-modules/* $APP_SOURCE_DIR/node_modules
-  fi
-  $METEOR_NPM install
-  cp -a $APP_SOURCE_DIR/node_modules/* $CACHE_DIR/meteor-dev-modules/
-fi
-
-# Related to https://github.com/meteor/meteor/issues/2796 and
-# https://github.com/meteor/meteor/issues/2606.  Some packages only build their
-# assets at runtime, and thus they are not available for bundling unless meteor
-# has been launched.  To opt-in to this, set BUILDPACK_PRELAUNCH_METEOR=1.
-if [ -n "${BUILDPACK_PRELAUNCH_METEOR+1}" ]; then
-  echo "-----> BUILDPACK_PRELAUNCH_METEOR: Pre-launching meteor to build packages assets"
-  # Remove the Android platform because it fails due to the Android tools not
-  # being installed, but leave the iOS platform because it's ignored.
-  METEOR remove-platform android || true
-  HOME=$METEOR_DIR timeout -s9 60 $METEOR_DIR/.meteor/meteor --settings settings.json || true
-fi
-
-# Now on to bundling. Don't put the bundle in $APP_CHECKOUT_DIR during
-# bundling, or it will recurse, trying to bundle up its own bundling.
-
-echo "-----> Building Meteor app with ROOT_URL: $ROOT_URL"
-BUNDLE_DEST=`mktemp -d "$BUILDPACK_DIR/build-XXXX"`
-
-# The actual invocation of `meteor build`!
-mkdir -p $CACHE_DIR/meteor-build
-rm -rf "$APP_SOURCE_DIR"/.meteor/local
-if [ -n "$(ls -A $CACHE_DIR/meteor-build)" ]; then
-  echo "-----> Reusing meteor build cache"
-fi
-ln -s $CACHE_DIR/meteor-build "$APP_SOURCE_DIR"/.meteor/local
-METEOR build $BUILD_OPTIONS --server $ROOT_URL $SERVER_ONLY_FLAG --directory $BUNDLE_DEST
-
 echo "-----> Moving built slug to $COMPILE_DIR/app"
-mv $BUNDLE_DEST/bundle "$COMPILE_DIR/app"
-rmdir $BUNDLE_DEST
+mkdir -p $COMPILE_DIR/app
+mv $APP_SOURCE_DIR/* "$COMPILE_DIR/app/"
 
 # Run npm install on the built slug; only for '--production' dependencies.
 echo "-----> Installing npm production dependencies on built slug"
